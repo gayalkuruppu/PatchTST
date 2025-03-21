@@ -10,7 +10,7 @@ from src.data.datamodule import DataLoaders
 from src.data.pred_dataset import *
 
 DSETS = ['ettm1', 'ettm2', 'etth1', 'etth2', 'electricity',
-         'traffic', 'illness', 'weather', 'exchange'
+         'traffic', 'illness', 'weather', 'exchange', 'tuh_2000'
         ]
 
 def get_dls(params):
@@ -28,7 +28,7 @@ def get_dls(params):
                 'data_path': 'ETTm1.csv',
                 'features': params.features,
                 'scale': True,
-                'size': size,
+                'size': size, # [512, 0, 96]
                 'use_time_features': params.use_time_features
                 },
                 batch_size=params.batch_size,
@@ -173,6 +173,23 @@ def get_dls(params):
                 batch_size=params.batch_size,
                 workers=params.num_workers,
                 )
+    elif params.dset == 'tuh_2000':
+        root_path = '/data/datasets/timeseries/eeg/scalp/tuh_2000_test' #tuh_preprocessed_neurogpt/'
+        size = [params.context_points, 0, params.target_points]
+        dls = DataLoaders(
+                datasetCls=TUH_Dataset,
+                dataset_kwargs={
+                'root_path': root_path,
+                'data_path': '',  # Empty string or subfolder name containing the .pt files
+                'features': params.features,
+                'scale': False,
+                'size': size,
+                'use_time_features': params.use_time_features
+                },
+                batch_size=params.batch_size,
+                workers=params.num_workers,
+                )
+    
     # dataset is assume to have dimension len x nvars
     dls.vars, dls.len = dls.train.dataset[0][0].shape[1], params.context_points
     dls.c = dls.train.dataset[0][1].shape[0]

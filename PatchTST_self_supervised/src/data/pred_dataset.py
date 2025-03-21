@@ -412,5 +412,163 @@ class Dataset_Pred(Dataset):
         return self.scaler.inverse_transform(data)
 
 
+class TUH_Dataset(Dataset):
+    def __init__(self, root_path, data_path, features='M', scale=False, size=None, 
+                 use_time_features=False, split='train', train_split=0.4, test_split=0.3):#train_split=0.7, test_split=0.2):
+        # Initialize parameters
+        self.root_path = root_path
+        self.data_path = data_path  # the subfolder containing .pt files
+        self.features = features
+        self.scale = scale
+        self.use_time_features = use_time_features
+        
+        # Split settings
+        assert split in ['train', 'test', 'val']
+        self.split = split
+        self.train_split = train_split
+        self.test_split = test_split
+        
+        # Sequence parameters
+        if size is None:
+            self.seq_len = 24 * 4 * 4
+            self.label_len = 24 * 4
+            self.pred_len = 24 * 4
+        else:
+            self.seq_len = size[0]
+            self.label_len = size[1]
+            self.pred_len = size[2]
+        
+        # Path for saving/loading patient splits
+        self.splits_path = os.path.join(root_path, "tuh_patient_splits.pkl")
+        
+        # Load and process the data
+        self.__read_data__()
+        
+    def __read_data__(self):
+        import pickle
+        import random
+        
+        # Get list of all tensor files
+        tensor_dir = os.path.join(self.root_path, self.data_path)
+        pt_files = sorted([f for f in os.listdir(tensor_dir) if f.endswith('.pt')])
+        
+        # Group files by patient ID
+        patient_files = {}
+        for file in pt_files:
+            # Extract patient ID from filename (example: 'aaaaauon_s001_t001_preprocessed.pt')
+            patient_id = file.split('_')[0]
+            if patient_id not in patient_files:
+                patient_files[patient_id] = []
+            patient_files[patient_id].append(file)
+        print(f"Found {len(patient_files)} patients with {len(pt_files)} files")
+        # Get patient splits
+        try:
+            # Try to load existing splits
+            with open(self.splits_path, 'rb') as f:
+                splits = pickle.load(f)
+                train_patients = splits['train']
+                val_patients = splits['val'] 
+                test_patients = splits['test']
+                print(f"Loaded existing patient splits from {self.splits_path}")
+        except (FileNotFoundError, EOFError):
+            # Create new splits if file doesn't exist
+            print(f"Creating new patient splits...")
+            
+            # Set fixed random seed for reproducibility
+            random.seed(42)
+            
+            # Shuffle patient IDs
+            patient_ids = list(patient_files.keys())
+            random.shuffle(patient_ids)
+            
+            # Split patients
+            num_patients = len(patient_ids)
+            train_end = int(num_patients * self.train_split)
+            val_end = train_end + int(num_patients * (1 - self.train_split - self.test_split))
+            
+            train_patients = patient_ids[:train_end]
+            val_patients = patient_ids[train_end:val_end]
+            test_patients = patient_ids[val_end:]
+            
+            # Save splits for future use
+            splits = {'train': train_patients, 'val': val_patients, 'test': test_patients}
+            with open(self.splits_path, 'wb') as f:
+                pickle.dump(splits, f)
+            print(f"Saved patient splits to {self.splits_path}")
+        
+        # Select appropriate files based on split
+        if self.split == 'train':
+            selected_patients = train_patients
+        elif self.split == 'val':
+            selected_patients = val_patients
+        else:  # test
+            selected_patients = test_patients
+            
+        # Get files for selected patients
+        selected_files = []
+        for patient in selected_patients:
+            selected_files.extend(patient_files.get(patient, []))
+            
+        print(f"Split: {self.split}, Patients: {len(selected_patients)}, Files: {len(selected_files)}")
+        
+        # Load and concatenate tensors
+        all_data = []
+        for file in selected_files:
+            tensor = torch.load(os.path.join(tensor_dir, file))
+            # Ensure tensor is 2D [time, channels]
+            if tensor.dim() == 1:
+                tensor = tensor.unsqueeze(1)
+            all_data.append(tensor)
+            
+        # Concatenate along time dimension
+        if all_data:
+            self.data = torch.cat(all_data, dim=0)
+        else:
+            print(f"WARNING: No data loaded for {self.split} split!")
+            self.data = torch.tensor([])
+            self.data_x = torch.tensor([])
+            self.data_y = torch.tensor([])
+            return
+        
+        # Apply scaling if needed
+        if self.scale:
+            self.scaler = StandardScaler()
+            self.scaler.fit(self.data.numpy())
+            self.data = torch.from_numpy(self.scaler.transform(self.data.numpy())).float()
+        
+        # Generate sequences for prediction
+        self._generate_sequences()
+        
+    def _generate_sequences(self):
+        # Create sequences for time series prediction
+        data_x, data_y = [], []
+        if len(self.data) > self.seq_len + self.pred_len - 1:
+            for i in range(len(self.data) - self.seq_len - self.pred_len + 1):
+                data_x.append(self.data[i:i+self.seq_len])
+                data_y.append(self.data[i+self.seq_len:i+self.seq_len+self.pred_len])
+                
+        self.data_x = torch.stack(data_x) if data_x else torch.tensor([])
+        self.data_y = torch.stack(data_y) if data_y else torch.tensor([])
+        
+    def __getitem__(self, index):
+        seq_x = self.data_x[index]
+        seq_y = self.data_y[index]
+        
+        if self.use_time_features:
+            # Create dummy time features if needed
+            seq_x_mark = torch.zeros((self.seq_len, 4))
+            seq_y_mark = torch.zeros((self.pred_len, 4))
+            return seq_x, seq_y, seq_x_mark, seq_y_mark
+        else:
+            return seq_x, seq_y
+        
+    def __len__(self):
+        return len(self.data_x)
+        
+    def inverse_transform(self, data):
+        if self.scale:
+            return torch.from_numpy(self.scaler.inverse_transform(data.numpy())).float()
+        return data 
+
 def _torch(*dfs):
     return tuple(torch.from_numpy(x).float() for x in dfs)

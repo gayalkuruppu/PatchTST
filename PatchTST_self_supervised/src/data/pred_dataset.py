@@ -3,6 +3,9 @@ import numpy as np
 import pandas as pd
 import os
 import torch
+import random
+import pickle
+from collections import OrderedDict
 from torch.utils.data import Dataset, DataLoader
 from sklearn.preprocessing import StandardScaler
 
@@ -413,11 +416,12 @@ class Dataset_Pred(Dataset):
 
 
 class TUH_Dataset(Dataset):
-    def __init__(self, root_path, data_path, features='M', scale=False, size=None, 
-                 use_time_features=False, split='train', train_split=0.4, test_split=0.3):#train_split=0.7, test_split=0.2):
+    def __init__(self, root_path, data_path, csv_path, features='M', scale=False, size=None, 
+                 use_time_features=False, split='train', train_split=0.7, test_split=0.2, cache_size=1000):
         # Initialize parameters
         self.root_path = root_path
-        self.data_path = data_path  # the subfolder containing .pt files
+        self.data_path = data_path
+        self.csv_path = csv_path
         self.features = features
         self.scale = scale
         self.use_time_features = use_time_features
@@ -430,24 +434,36 @@ class TUH_Dataset(Dataset):
         
         # Sequence parameters
         if size is None:
-            self.seq_len = 24 * 4 * 4
-            self.label_len = 24 * 4
-            self.pred_len = 24 * 4
+            raise ValueError("Must specify size parameter")
         else:
             self.seq_len = size[0]
-            self.label_len = size[1]
+            self.label_len = size[1] # Not used
             self.pred_len = size[2]
         
         # Path for saving/loading patient splits
         self.splits_path = os.path.join(root_path, "tuh_patient_splits.pkl")
         
+        # Load file lengths from CSV
+        self.file_lengths = self._load_file_lengths()
+        
         # Load and process the data
         self.__read_data__()
+
+        # Add cache for loaded tensors
+        self.cache_size = cache_size
+        self.tensor_cache = OrderedDict()
         
+        # Binary search optimization - precompute file boundaries
+        self.file_boundaries = [(0, cum_len) if i == 0 else 
+                               (self.cumulative_lengths[i-1], cum_len) 
+                               for i, cum_len in enumerate(self.cumulative_lengths)]
+        
+    def _load_file_lengths(self):
+        df = pd.read_csv(self.csv_path)
+        file_lengths = {row['filename']: row['time_len'] for _, row in df.iterrows()}
+        return file_lengths
+
     def __read_data__(self):
-        import pickle
-        import random
-        
         # Get list of all tensor files
         tensor_dir = os.path.join(self.root_path, self.data_path)
         pt_files = sorted([f for f in os.listdir(tensor_dir) if f.endswith('.pt')])
@@ -455,19 +471,20 @@ class TUH_Dataset(Dataset):
         # Group files by patient ID
         patient_files = {}
         for file in pt_files:
-            # Extract patient ID from filename (example: 'aaaaauon_s001_t001_preprocessed.pt')
+            # Extract patient ID from filename (e.g., 'aaaaauon_s001_t001_preprocessed.pt')
             patient_id = file.split('_')[0]
             if patient_id not in patient_files:
                 patient_files[patient_id] = []
             patient_files[patient_id].append(file)
         print(f"Found {len(patient_files)} patients with {len(pt_files)} files")
+        
         # Get patient splits
         try:
             # Try to load existing splits
             with open(self.splits_path, 'rb') as f:
                 splits = pickle.load(f)
                 train_patients = splits['train']
-                val_patients = splits['val'] 
+                val_patients = splits['val']
                 test_patients = splits['test']
                 print(f"Loaded existing patient splits from {self.splits_path}")
         except (FileNotFoundError, EOFError):
@@ -505,70 +522,81 @@ class TUH_Dataset(Dataset):
             selected_patients = test_patients
             
         # Get files for selected patients
-        selected_files = []
+        self.selected_files = []
         for patient in selected_patients:
-            selected_files.extend(patient_files.get(patient, []))
+            self.selected_files.extend(patient_files.get(patient, []))
             
-        print(f"Split: {self.split}, Patients: {len(selected_patients)}, Files: {len(selected_files)}")
+        print(f"Split: {self.split}, Patients: {len(selected_patients)}, Files: {len(self.selected_files)}")
         
-        # Load and concatenate tensors
-        all_data = []
-        for file in selected_files:
-            tensor = torch.load(os.path.join(tensor_dir, file))
-            # Ensure tensor is 2D [time, channels]
-            if tensor.dim() == 1:
-                tensor = tensor.unsqueeze(1)
-            all_data.append(tensor)
+        # Calculate cumulative sequence lengths for indexing
+        self.cumulative_lengths = []
+        total_sequences = 0
+        for file in self.selected_files:
+            file_length = self.file_lengths[file]
+            num_sequences = max(0, file_length - self.seq_len - self.pred_len + 1)
+            self.cumulative_lengths.append(total_sequences + num_sequences)
+            total_sequences += num_sequences
+        # print("self.cumulative_lengths:", self.cumulative_lengths)
+        print(f"Total Sequences: {total_sequences}")
+    
+    def _load_tensor(self, file_idx):
+        """Load tensor with caching mechanism"""
+        file_name = self.selected_files[file_idx]
+        
+        # Check if in cache
+        if file_name in self.tensor_cache:
+            # Move to end to mark as recently used
+            self.tensor_cache.move_to_end(file_name)
+            return self.tensor_cache[file_name]
+        
+        # Load the file
+        file_path = os.path.join(self.root_path, self.data_path, file_name)
+        tensor = torch.load(file_path)
+        
+        # Ensure tensor is 2D [time, channels]
+        if tensor.dim() == 1:
+            tensor = tensor.unsqueeze(1)
+        
+        # Add to cache
+        self.tensor_cache[file_name] = tensor
+        
+        # Remove oldest item if cache is full
+        if len(self.tensor_cache) > self.cache_size:
+            self.tensor_cache.popitem(last=False)
             
-        # Concatenate along time dimension
-        if all_data:
-            self.data = torch.cat(all_data, dim=0)
-        else:
-            print(f"WARNING: No data loaded for {self.split} split!")
-            self.data = torch.tensor([])
-            self.data_x = torch.tensor([])
-            self.data_y = torch.tensor([])
-            return
-        
-        # Apply scaling if needed
-        if self.scale:
-            self.scaler = StandardScaler()
-            self.scaler.fit(self.data.numpy())
-            self.data = torch.from_numpy(self.scaler.transform(self.data.numpy())).float()
-        
-        # Generate sequences for prediction
-        self._generate_sequences()
-        
-    def _generate_sequences(self):
-        # Create sequences for time series prediction
-        data_x, data_y = [], []
-        if len(self.data) > self.seq_len + self.pred_len - 1:
-            for i in range(len(self.data) - self.seq_len - self.pred_len + 1):
-                data_x.append(self.data[i:i+self.seq_len])
-                data_y.append(self.data[i+self.seq_len:i+self.seq_len+self.pred_len])
-                
-        self.data_x = torch.stack(data_x) if data_x else torch.tensor([])
-        self.data_y = torch.stack(data_y) if data_y else torch.tensor([])
-        
+        return tensor
+
     def __getitem__(self, index):
-        seq_x = self.data_x[index]
-        seq_y = self.data_y[index]
+        # Binary search to find file index more efficiently
+        left, right = 0, len(self.cumulative_lengths) - 1
+        while left <= right:
+            mid = (left + right) // 2
+            if index < self.cumulative_lengths[mid]:
+                if mid == 0 or index >= self.cumulative_lengths[mid-1]:
+                    file_index = mid
+                    break
+                right = mid - 1
+            else:
+                left = mid + 1
         
-        if self.use_time_features:
-            # Create dummy time features if needed
-            seq_x_mark = torch.zeros((self.seq_len, 4))
-            seq_y_mark = torch.zeros((self.pred_len, 4))
-            return seq_x, seq_y, seq_x_mark, seq_y_mark
+        # Calculate local index in file
+        if file_index > 0:
+            local_index = index - self.cumulative_lengths[file_index - 1]
         else:
-            return seq_x, seq_y
+            local_index = index
+        
+        # Load tensor with caching
+        tensor = self._load_tensor(file_index)
+        
+        # Extract the sequence
+        seq_x = tensor[local_index:local_index + self.seq_len]
+        seq_y = tensor[local_index + self.seq_len:local_index + self.seq_len + self.pred_len]
+        
+        return seq_x, seq_y
         
     def __len__(self):
-        return len(self.data_x)
-        
-    def inverse_transform(self, data):
-        if self.scale:
-            return torch.from_numpy(self.scaler.inverse_transform(data.numpy())).float()
-        return data 
+        return self.cumulative_lengths[-1]
+    
 
 def _torch(*dfs):
     return tuple(torch.from_numpy(x).float() for x in dfs)

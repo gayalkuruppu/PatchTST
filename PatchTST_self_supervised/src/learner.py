@@ -115,8 +115,9 @@ class Learner(GetAttr):
 
     def epoch_train(self):
         self('before_epoch_train')
-        self.model.train()                
+        self.model.train()
         self.dl = self.dls.train
+        print(f"Number of batches: {len(self.dl)}")
         self.all_batches('train')
         self('after_epoch_train')
     
@@ -132,7 +133,11 @@ class Learner(GetAttr):
 
     def all_batches(self, type_):
         # for self.num,self.batch in enumerate(progress_bar(dl, leave=False)):        
-        for num, batch in enumerate(self.dl):            
+        for num, batch in enumerate(self.dl):
+            if num > 1000:
+                print("Stopping after 1000 batches for debugging")
+                break
+            # print(f"Processing batch {num}")
             self.iter, self.batch = num, batch            
             if type_ == 'train': self.batch_train()
             elif type_ == 'valid': self.batch_validate()

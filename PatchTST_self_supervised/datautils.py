@@ -174,13 +174,15 @@ def get_dls(params):
                 workers=params.num_workers,
                 )
     elif params.dset == 'tuh_2000':
-        root_path = '/data/datasets/timeseries/eeg/scalp/tuh_2000_test' #tuh_preprocessed_neurogpt/'
+        # root_path = '/mnt/hdd_16tb_0/tuh_preprocessed'
+        root_path = '/mnt/ssd_4tb_0/data/tuh_preprocessed'
         size = [params.context_points, 0, params.target_points]
         dls = DataLoaders(
                 datasetCls=TUH_Dataset,
                 dataset_kwargs={
                 'root_path': root_path,
                 'data_path': '',  # Empty string or subfolder name containing the .pt files
+                'csv_path': '../preprocessing/inputs/sub_list2.csv',
                 'features': params.features,
                 'scale': False,
                 'size': size,

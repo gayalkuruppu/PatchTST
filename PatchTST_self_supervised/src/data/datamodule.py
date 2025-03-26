@@ -49,6 +49,8 @@ class DataLoaders:
             batch_size=self.batch_size,
             num_workers=self.workers,
             collate_fn=self.collate_fn,
+            pin_memory=True,
+            prefetch_factor=2,
         )
 
     @classmethod

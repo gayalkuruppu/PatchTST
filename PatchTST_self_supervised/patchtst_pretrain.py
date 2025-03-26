@@ -124,7 +124,7 @@ def pretrain_func(lr=args.lr):
     cbs += [
          PatchMaskCB(patch_len=args.patch_len, stride=args.stride, mask_ratio=args.mask_ratio),
          SaveModelCB(monitor='valid_loss', fname=args.save_pretrained_model,                       
-                        path=args.save_path)
+                        path=args.save_path, every_epoch=1)
         ]
     # define learner
     learn = Learner(dls, model, 
@@ -134,6 +134,7 @@ def pretrain_func(lr=args.lr):
                         #metrics=[mse]
                         )                        
     # fit the data to the model
+    print('training model...')
     learn.fit_one_cycle(n_epochs=args.n_epochs_pretrain, lr_max=lr)
 
     train_loss = learn.recorder['train_loss']

@@ -197,22 +197,30 @@ def standardize_channels(data, target_channels=22):
         
     return data, original_channel_count
 
-def save_processed_data(data, file_path, output_dir):
+def save_processed_data(data, file_path, output_dir, output_format):
     """Save the processed data as a PyTorch tensor."""
     base_name = os.path.basename(file_path)
-    output_name = base_name.replace('.edf', '_preprocessed.pt')
+    output_name = base_name.replace('.edf', f'_preprocessed.{output_format}')
     output_path = os.path.join(output_dir, output_name)
     
     # Transpose data to [time, channels] format
     data = data.T  # Transpose the data
 
-    # Save as PyTorch tensor
-    logger.debug(f"Saving preprocessed data to {output_path}")
-    torch.save(torch.FloatTensor(data), output_path)
+    # Save in the requested format
+    logger.debug(f"Saving preprocessed data to {output_path} in {output_format} format")
+    if output_format.lower() == 'pt':
+        torch.save(torch.FloatTensor(data), output_path)
+    elif output_format.lower() == 'npy':
+        # np.save(output_path, data)
+        # save float32 instead of float64
+        np.save(output_path, data.astype(np.float32))
+    else:
+        logger.warning(f"Unsupported format '{output_format}', defaulting to PyTorch format")
+        torch.save(torch.FloatTensor(data), output_path.replace(f'.{output_format}', '.pt'))
     
     return output_path
 
-def preprocess_eeg(file_path, output_dir, channels_to_use_ref=None, channels_to_use_le=None):
+def preprocess_eeg(file_path, output_dir, output_format, channels_to_use_ref=None, channels_to_use_le=None):
     """
     Main function to preprocess a single EEG file and save as PT file.
     
@@ -267,7 +275,7 @@ def preprocess_eeg(file_path, output_dir, channels_to_use_ref=None, channels_to_
     data, original_channel_count = standardize_channels(data, target_channels=19)
     
     # Step 9: Save processed data
-    output_path = save_processed_data(data, file_path, output_dir)
+    output_path = save_processed_data(data, file_path, output_dir, output_format)
     
     logger.info(f"Successfully preprocessed {file_path} -> {output_path} "
                 f"(Original channels: {original_channel_count}, Time points: {data.shape[1]})")
@@ -307,6 +315,8 @@ def main():
                         help='Directory with the TUH EEG dataset')
     parser.add_argument('--output-dir', type=str, default='./preprocessed_eeg_data',
                         help='Directory to save preprocessed data')
+    parser.add_argument('--output-format', type=str, default='pt',
+                        help='Output format for preprocessed data (pt or npy)')
     parser.add_argument('--csv-path', type=str, default='./inputs/sub_list2.csv',
                         help='Path to save the CSV file')
     parser.add_argument('--max-files', type=int, default=None,
@@ -364,7 +374,7 @@ def main():
     
     for file_path in tqdm(edf_files, desc="Preprocessing files"):
         try:
-            result = preprocess_eeg(file_path, args.output_dir)
+            result = preprocess_eeg(file_path, args.output_dir, args.output_format)
             if result is not None:
                 output_path, time_len = result
                 processed_files.append([output_path, time_len])

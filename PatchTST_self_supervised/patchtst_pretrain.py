@@ -47,7 +47,9 @@ parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')
 # model id to keep track of the number of models saved
 parser.add_argument('--pretrained_model_id', type=int, default=1, help='id of the saved pretrained model')
 parser.add_argument('--model_type', type=str, default='based_model', help='for multivariate model or univariate model')
-
+# Add after the model_type argument
+parser.add_argument('--use_multi_gpu', action='store_true', help='use multiple gpus', default=False)
+parser.add_argument('--devices', type=str, default='0,1', help='device ids of multiple gpus')
 
 args = parser.parse_args()
 print('args:', args)
@@ -55,9 +57,21 @@ args.save_pretrained_model = 'patchtst_pretrained_cw'+str(args.context_points)+'
 args.save_path = 'saved_models/' + args.dset_pretrain + '/masked_patchtst/' + args.model_type + '/'
 if not os.path.exists(args.save_path): os.makedirs(args.save_path)
 
-
-# get available GPU devide
-set_device()
+# Multi-GPU setup
+if args.use_multi_gpu and torch.cuda.is_available():
+    args.devices = args.devices.replace(' ', '')
+    device_ids = args.devices.split(',')
+    args.device_ids = [int(id_) for id_ in device_ids]
+    args.gpu = args.device_ids[0]
+    # Set primary CUDA device
+    torch.cuda.set_device(args.gpu)
+    print(f"Using multiple GPUs: {args.device_ids}")
+else:
+    args.device_ids = None
+    args.gpu = 0
+    print("Using single GPU")
+    # Only call set_device() for automatic GPU selection in single-GPU mode
+    set_device()
 
 
 def get_model(c_in, args):
@@ -84,7 +98,16 @@ def get_model(c_in, args):
                 act='relu',
                 head_type='pretrain',
                 res_attention=False
-                )        
+                )  
+    
+    # Wrap model in DataParallel if using multiple GPUs
+    if args.use_multi_gpu and args.device_ids is not None:
+        # First set the primary device
+        torch.cuda.set_device(args.gpu)
+        # Move model to the primary GPU
+        model = model.to(f'cuda:{args.gpu}')
+        model = torch.nn.DataParallel(model, device_ids=args.device_ids)
+     
     # print out the model size
     print('number of model params', sum(p.numel() for p in model.parameters() if p.requires_grad))
     return model

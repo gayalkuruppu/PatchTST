@@ -15,15 +15,16 @@ def get_args():
     parser.add_argument('--dset', type=str, default='tuh_2000', help='dataset name')
     parser.add_argument('--context_points', type=int, default=25000, help='sequence length')
     parser.add_argument('--patch_len', type=int, default=2500, help='patch length')
-    parser.add_argument('--stride', type=int, default=25000, help='stride between patch')
+    parser.add_argument('--stride', type=int, default=2500, help='stride between patch')
     parser.add_argument('--mask_ratio', type=float, default=0.4, help='masking ratio')
     parser.add_argument('--batch_size', type=int, default=1, help='batch size')
     parser.add_argument('--pretrained_model', type=str, default='', help='path to pretrained model')
+    parser.add_argument('--epochs', type=int, default=10, help='number of pre-training epochs')
     
     args = parser.parse_args()
     return args
 
-def visualize_reconstruction(model, data, patch_len, stride, mask_ratio):
+def visualize_reconstruction(model, data, patch_len, stride, mask_ratio, epochs):
     """
     Visualize original signal, masked patches and reconstruction
     """
@@ -111,7 +112,7 @@ def visualize_reconstruction(model, data, patch_len, stride, mask_ratio):
     axes[2].legend(['Original', 'Reconstruction'])
     
     plt.tight_layout()
-    plt.savefig('patchtst_reconstruction.png')
+    plt.savefig(f'patchtst_reconstruction_{epochs}.png')
     plt.show()
     
     print(f"Visualization saved to 'patchtst_reconstruction.png'")
@@ -125,6 +126,7 @@ def main():
     args.target_points = 0  # Not used in reconstruction
     args.features = 'M'
     args.num_workers = 1
+    args.epochs = 10
     dls = get_dls(args)
     
     # Get a batch of data
@@ -156,7 +158,7 @@ def main():
         model_path = args.pretrained_model
     else:
         # Use default path pattern from training script
-        model_path = f'saved_models/{args.dset}/masked_patchtst/based_model/patchtst_pretrained_cw{args.context_points}_patch{args.patch_len}_stride{args.stride}_epochs-pretrain10_mask{args.mask_ratio}_model1.pth'
+        model_path = f'saved_models/{args.dset}/masked_patchtst/based_model/patchtst_pretrained_cw{args.context_points}_patch{args.patch_len}_stride{args.stride}_epochs-pretrain10_mask{args.mask_ratio}_model1_{args.epochs-1}.pth'
     
     if os.path.exists(model_path):
         print(f"Loading pretrained model from {model_path}")
@@ -166,7 +168,7 @@ def main():
     
     # Visualize
     print("Generating visualization...")
-    visualize_reconstruction(model, x_batch, args.patch_len, args.stride, args.mask_ratio)
+    visualize_reconstruction(model, x_batch, args.patch_len, args.stride, args.mask_ratio, args.epochs)
 
 if __name__ == "__main__":
     main()

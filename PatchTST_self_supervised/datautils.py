@@ -10,7 +10,7 @@ from src.data.datamodule import DataLoaders
 from src.data.pred_dataset import *
 
 DSETS = ['ettm1', 'ettm2', 'etth1', 'etth2', 'electricity',
-         'traffic', 'illness', 'weather', 'exchange', 'tuh_2000'
+         'traffic', 'illness', 'weather', 'exchange', 'tuh_2000', 'tuh_test'
         ]
 
 def get_dls(params):
@@ -179,6 +179,24 @@ def get_dls(params):
         size = [params.context_points, 0, params.target_points]
         dls = DataLoaders(
                 datasetCls=TUH_Dataset,
+                dataset_kwargs={
+                'root_path': root_path,
+                'data_path': '',  # Empty string or subfolder name containing the .pt files
+                'csv_path': '../preprocessing/inputs/sub_list2.csv',
+                'features': params.features,
+                'scale': False,
+                'size': size,
+                'use_time_features': params.use_time_features
+                },
+                batch_size=params.batch_size,
+                workers=params.num_workers,
+                )
+    elif params.dset == 'tuh_test':
+        # root_path = '/mnt/hdd_16tb_0/tuh_preprocessed'
+        root_path = '/mnt/ssd_4tb_0/data/tuh_preprocessed_npy'
+        size = [params.context_points, 0, params.target_points]
+        dls = DataLoaders(
+                datasetCls=TUH_Dataset_Test,
                 dataset_kwargs={
                 'root_path': root_path,
                 'data_path': '',  # Empty string or subfolder name containing the .pt files

@@ -134,7 +134,7 @@ class Learner(GetAttr):
     def all_batches(self, type_):
         # for self.num,self.batch in enumerate(progress_bar(dl, leave=False)):        
         for num, batch in enumerate(self.dl):
-            if num > 0:
+            if num > 1000:
                 print("Stopping after 1000 batches for debugging")
                 break
             # print(f"Processing batch {num}")

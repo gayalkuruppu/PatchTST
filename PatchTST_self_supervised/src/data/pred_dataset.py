@@ -920,7 +920,8 @@ class TUH_Dataset_Test(Dataset):
         seq_x = tensor[local_index:local_index + self.seq_len]
         seq_y = tensor[local_index + self.seq_len:local_index + self.seq_len + self.pred_len]
         
-        return seq_x, seq_y
+        # return seq_x, seq_y
+        return {"past_values": seq_x, "future_values": seq_y}
         
     def __len__(self):
         return self.cumulative_lengths[-1]

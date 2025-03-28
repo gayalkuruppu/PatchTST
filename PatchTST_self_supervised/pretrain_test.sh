@@ -15,5 +15,5 @@
 #      --n_epochs_pretrain 10 --use_multi_gpu # single gpu 4:09 mins for 1000 batches,  mins with multigpus for same num batches
 
 python patchtst_pretrain.py --dset tuh_test --mask_ratio 0.4 --num_workers 16\
-     --batch_size 256 --context_points 25000 --patch_len 2500 --stride 2500 \
+     --batch_size 256 --context_points 2500 --patch_len 250 --stride 250 \
      --n_epochs_pretrain 10 --use_multi_gpu # single gpu mins for 1000 batches,  mins with multigpus for same num batches

@@ -6,7 +6,7 @@ from tqdm import tqdm
 
 # Define basic parameters for testing
 class Params:
-    dset = 'tuh_2000'
+    dset = 'tuh_test'
     context_points = 25000 #384
     target_points = 0 #96
     batch_size = 64

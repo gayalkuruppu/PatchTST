@@ -469,3 +469,4 @@ patch_venv/
 PatchTST_self_supervised/saved_models/
 PatchTST_self_supervised/temp/
 PatchTST_self_supervised/*.png
+tuhab_records/

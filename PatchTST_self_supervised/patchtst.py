@@ -29,6 +29,9 @@ from getpass import getpass
 os.environ["NEPTUNE_API_TOKEN"] = "eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJjNzI3OWFjMy02ZWQ5LTQzMTctOGYxMC1iMDliZTk3N2Y1YzMifQ=="
 os.environ["NEPTUNE_PROJECT"] = "gayalkuruppu/tuh-ssl-test"
 
+os.environ["NCCL_P2P_DISABLE"] = "1"
+os.environ["NCCL_IB_DISABLE"] = "1"
+
 def main():
 
     np.random.seed(42)
@@ -40,19 +43,20 @@ def main():
 
 
 
-    context_length = 2500#512
+    context_length = 1000#2500#512
     forecast_horizon = 96
-    patch_length = 250#16
-    patch_stride = 250
+    patch_length = 100#250#16
+    patch_stride = 100#250
     num_workers = 16 
     batch_size = 128#512 
     avg_imu_length = 512
 
 
     tuh_data = TUH_Dataset_Test(
-        root_path='/mnt/ssd_4tb_0/data/tuh_preprocessed_npy_test',#'/mnt/ssd_4tb_0/data/tuh_preprocessed_npy',
+        # root_path='/mnt/ssd_4tb_0/data/tuh_preprocessed_npy_test',#'/mnt/ssd_4tb_0/data/tuh_preprocessed_npy',
+        root_path='/home/gayal/ssl-analyses-repos/PatchTST/tuhab_records/tuhab_records_cropped',
         data_path='',
-        csv_path='../preprocessing/inputs/sub_list2.csv',
+        csv_path='/home/gayal/ssl-analyses-repos/PatchTST/tuhab_records/tuhab_records_cropped/tuhab_records_cropped.csv',
         features='M',
         scale=False,
         size=[context_length, 0, patch_length],
@@ -60,9 +64,10 @@ def main():
     )
 
     tuh_eval_data = TUH_Dataset_Test(
-        root_path='/mnt/ssd_4tb_0/data/tuh_preprocessed_npy_test',#'/mnt/ssd_4tb_0/data/tuh_preprocessed_npy',
+        # root_path='/mnt/ssd_4tb_0/data/tuh_preprocessed_npy_test',#'/mnt/ssd_4tb_0/data/tuh_preprocessed_npy',
+        root_path='/home/gayal/ssl-analyses-repos/PatchTST/tuhab_records/tuhab_records_cropped',
         data_path='',
-        csv_path='../preprocessing/inputs/sub_list2.csv',
+        csv_path='/home/gayal/ssl-analyses-repos/PatchTST/tuhab_records/tuhab_records_cropped/tuhab_records_cropped.csv',
         features='M',
         scale=False,
         size=[context_length, 0, patch_length],
@@ -97,13 +102,14 @@ def main():
     model = PatchTSTForPretraining(config)
 
     training_args = TrainingArguments(
-        output_dir='/home/gayal/ssl-project/PatchTST/PatchTST_self_supervised/saved_models/test_run_10_recordings_10k/outputs', #"./checkpoint/patchtst-ego4d/pretrain/output/",
+        # output_dir='/home/gayal/ssl-project/PatchTST/PatchTST_self_supervised/saved_models/test_run_10_recordings_10k/outputs', #"./checkpoint/patchtst-ego4d/pretrain/output/",
+        output_dir='/home/gayal/ssl-analyses-repos/PatchTST/PatchTST_self_supervised/saved_models/tuhab_1000000/outputs',
         overwrite_output_dir=True,
         learning_rate=1e-4,
         lr_scheduler_type="cosine",
         # lr_scheduler_kwargs={'eta_min':1e-7, },
         # num_train_epochs=100,#100,
-        max_steps=10000,
+        max_steps=1000000,
         do_eval=True,
         eval_strategy="steps",
         per_device_train_batch_size=batch_size,
@@ -112,10 +118,11 @@ def main():
         save_strategy="steps",
         logging_strategy="steps",
         save_steps=0.05,
-        logging_steps=1,
-        eval_steps=100,
+        logging_steps=10000,
+        eval_steps=20000,
         # save_total_limit=3,
-        logging_dir='/home/gayal/ssl-project/PatchTST/PatchTST_self_supervised/saved_models/test_run_10_recordings_10k/logs',#"./checkpoint/patchtst-ego4d/pretrain/logs/",  
+        # logging_dir='/home/gayal/ssl-project/PatchTST/PatchTST_self_supervised/saved_models/test_run_10_recordings_10k/logs',#"./checkpoint/patchtst-ego4d/pretrain/logs/",  
+        logging_dir='/home/gayal/ssl-analyses-repos/PatchTST/PatchTST_self_supervised/saved_models/tuhab_1000000/logs',
         # load_best_model_at_end=True,  
         # metric_for_best_model="loss",  
         greater_is_better=False,  # For loss

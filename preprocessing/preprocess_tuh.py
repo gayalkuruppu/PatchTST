@@ -138,7 +138,7 @@ def handle_bad_channels(raw):
     
     return raw
 
-def apply_filters(raw):
+def apply_filters(raw, notch_freq=60, bandpass_freqs=(0.5, 100)):
     """Apply standard filters to the EEG data."""
     # Re-reference to average
     logger.debug("Re-referencing to average")
@@ -146,11 +146,11 @@ def apply_filters(raw):
     
     # Apply notch filter to remove power line noise (60 Hz)
     logger.debug("Applying 60Hz notch filter")
-    raw.notch_filter(freqs=[60], picks='eeg')
+    raw.notch_filter(freqs=[notch_freq], picks='eeg')
     
     # Apply bandpass filter (0.5 - 100 Hz)
     logger.debug("Applying bandpass filter (0.5-100 Hz)")
-    raw.filter(l_freq=0.5, h_freq=100, picks='eeg')
+    raw.filter(l_freq=bandpass_freqs[0], h_freq=bandpass_freqs[1], picks='eeg')
     
     return raw
 
@@ -259,7 +259,7 @@ def preprocess_eeg(file_path, output_dir, output_format, channels_to_use_ref=Non
     raw = handle_bad_channels(raw)
     
     # Step 5: Apply filters (re-referencing, notch, bandpass)
-    raw = apply_filters(raw)
+    raw = apply_filters(raw, notch_freq=60, bandpass_freqs=(0.5, 100))
     
     # Step 6: Resample data
     raw = resample_data(raw, target_freq=250)

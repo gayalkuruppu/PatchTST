@@ -41,6 +41,26 @@ def read_edf_file(file_path):
     except Exception as e:
         logger.error(f"Error reading {file_path}: {e}")
         return None
+    
+def crop_data(raw, file_path, crop_start=300, crop_end=300):
+    """
+    Crop the raw data by removing x seconds from the beginning and y seconds from the end.
+    Default is 5 minutes (300 seconds) from both ends.
+    """
+    try:
+        logger.debug(f"Cropping data for {file_path}: start={crop_start}s, end={crop_end}s")
+        total_time = raw.times[-1] - raw.times[0]  # Total recording length in seconds
+        if total_time < crop_start + crop_end:
+            logger.warning(f"Data too short to crop: {file_path}")
+            return None  # Return None if we can't crop properly
+        
+        # Crop the data
+        raw = raw.crop(tmin=crop_start, tmax=total_time - crop_end)
+        logger.debug(f"Data cropped successfully: new length = {raw.times[-1] - raw.times[0]} seconds")
+        return raw
+    except Exception as e:
+        logger.error(f"Error cropping data for {file_path}: {e}")
+        return None
 
 def select_channels(raw, channels_to_use_ref=None, channels_to_use_le=None):
     """
@@ -145,12 +165,16 @@ def apply_filters(raw, notch_freq=60, bandpass_freqs=(0.5, 100)):
     raw.set_eeg_reference('average', projection=False)
     
     # Apply notch filter to remove power line noise (60 Hz)
-    logger.debug("Applying 60Hz notch filter")
-    raw.notch_filter(freqs=[notch_freq], picks='eeg')
+    if bandpass_freqs[1] < notch_freq:
+        logger.warning(f"Notch frequency {notch_freq} Hz is higher than the upper bandpass frequency {bandpass_freqs[1]} Hz. Skipping notch filter.")
+        return raw
+    else:
+        logger.info(f"Applying notch filter at {notch_freq} Hz")
+        raw.notch_filter(freqs=[notch_freq], picks='eeg')
     
     # Apply bandpass filter (0.5 - 100 Hz)
-    logger.debug("Applying bandpass filter (0.5-100 Hz)")
-    raw.filter(l_freq=bandpass_freqs[0], h_freq=bandpass_freqs[1], picks='eeg')
+    logger.debug(f"Applying bandpass filter from {bandpass_freqs[0]} Hz to {bandpass_freqs[1]} Hz")
+    raw.filter(l_freq=bandpass_freqs[0], h_freq=bandpass_freqs[1], picks='eeg', njobs=4, verbose=False)
     
     return raw
 
@@ -162,21 +186,21 @@ def resample_data(raw, target_freq=250):
 
 def normalize_data(data):
     """Apply signal normalization techniques."""
-    # DC offset correction (remove mean from each channel)
-    logger.debug("Applying DC offset correction")
-    data = data - np.mean(data, axis=1, keepdims=True)
+    # # DC offset correction (remove mean from each channel)
+    # logger.debug("Applying DC offset correction")
+    # data = data - np.mean(data, axis=1, keepdims=True)
     
-    # Remove linear trend from each channel
-    logger.debug("Removing linear trends")
-    for i in range(data.shape[0]):
-        data[i] = signal.detrend(data[i])
+    # # Remove linear trend from each channel
+    # logger.debug("Removing linear trends")
+    # for i in range(data.shape[0]):
+    #     data[i] = signal.detrend(data[i])
     
     # Z-transform along time dimension
     logger.debug("Applying Z-transform")
-    for i in range(data.shape[0]):
-        std = np.std(data[i])
+    for channel in range(data.shape[0]):
+        std = np.std(data[channel])
         if std > 0:  # Avoid division by zero
-            data[i] = (data[i] - np.mean(data[i])) / std
+            data[channel] = (data[channel] - np.mean(data[channel])) / std
             
     return data
 
@@ -220,13 +244,13 @@ def save_processed_data(data, file_path, output_dir, output_format):
     
     return output_path
 
-def preprocess_eeg(file_path, output_dir, output_format, channels_to_use_ref=None, channels_to_use_le=None):
+def preprocess_eeg(file_path, args, channels_to_use_ref=None, channels_to_use_le=None):
     """
     Main function to preprocess a single EEG file and save as PT file.
     
     Args:
         file_path: Path to the EDF file
-        output_dir: Directory to save the preprocessed file
+        output_dir: Data args
         channels_to_use_ref: List of REF channels to keep (if None, will use default channels)
         channels_to_use_le: List of LE channels to keep (if None, will derive from REF list)
     """
@@ -247,6 +271,17 @@ def preprocess_eeg(file_path, output_dir, output_format, channels_to_use_ref=Non
     if raw is None:
         return None
     
+    # Step 1.1: Crop x seconds from the begining and y seconds from the end
+    raw = crop_data(raw, file_path, crop_start=args.crop_start, crop_end=args.crop_end)
+    if raw is None:
+        logger.warning(f"Skipping {file_path} due to cropping error")
+        return None
+    
+    # Step 1.2: if the cropped data is shorter than 10 minutes or longer than 1 hours, skip it
+    if not (args.filter_length_min <= (raw.times[-1] - raw.times[0]) <= args.filter_length_max):
+        logger.warning(f"Skipping {file_path} due to insufficient time length after cropping or exceeding maximum length")
+        return None
+
     # Step 2: Select the desired channels
     raw = select_channels(raw, channels_to_use_ref, channels_to_use_le)
     if raw is None:
@@ -259,23 +294,23 @@ def preprocess_eeg(file_path, output_dir, output_format, channels_to_use_ref=Non
     raw = handle_bad_channels(raw)
     
     # Step 5: Apply filters (re-referencing, notch, bandpass)
-    raw = apply_filters(raw, notch_freq=60, bandpass_freqs=(0.5, 100))
+    raw = apply_filters(raw, notch_freq=args.notch_freq, bandpass_freqs=(args.bandpass_freqs[0], args.bandpass_freqs[1]))
     
     # Step 6: Resample data
-    raw = resample_data(raw, target_freq=250)
+    raw = resample_data(raw, target_freq=args.resample_freq)
     
     # Get the data array
     data = raw.get_data()
     logger.debug(f"Data shape after preprocessing: {data.shape}")
     
     # Step 7: Normalize data
-    data = normalize_data(data)
+    data = normalize_data(data) # [num_channels, num_time_points]
     
     # Step 8: Standardize channel count
     data, original_channel_count = standardize_channels(data, target_channels=19)
     
     # Step 9: Save processed data
-    output_path = save_processed_data(data, file_path, output_dir, output_format)
+    output_path = save_processed_data(data, file_path, args.output_dir, args.output_format)
     
     logger.info(f"Successfully preprocessed {file_path} -> {output_path} "
                 f"(Original channels: {original_channel_count}, Time points: {data.shape[1]})")
@@ -315,12 +350,27 @@ def main():
                         help='Directory with the TUH EEG dataset')
     parser.add_argument('--output-dir', type=str, default='./preprocessed_eeg_data',
                         help='Directory to save preprocessed data')
-    parser.add_argument('--output-format', type=str, default='pt',
+    parser.add_argument('--output-format', type=str, default='npy',
                         help='Output format for preprocessed data (pt or npy)')
     parser.add_argument('--csv-path', type=str, default='./inputs/sub_list2.csv',
                         help='Path to save the CSV file')
     parser.add_argument('--max-files', type=int, default=None,
                         help='Maximum number of files to process (default: all)')
+    # preprocess data args:
+    parser.add_argument('--crop-start', type=int, default=300,
+                        help='Seconds to crop from the beginning of the recording (default: 300s)')
+    parser.add_argument('--crop-end', type=int, default=300,
+                        help='Seconds to crop from the end of the recording (default: 300s)')
+    parser.add_argument('--filter-length-min', type=int, default=600,
+                        help='Minimum length of recording to process (default: 600s)')
+    parser.add_argument('--filter-length-max', type=int, default=3600,
+                        help='Maximum length of recording to process (default: 3600s)')
+    parser.add_argument('--notch-freq', type=int, default=60,
+                        help='Frequency for notch filter (default: 60 Hz)')
+    parser.add_argument('--bandpass-freqs', type=int, nargs=2, default=(0.5, 35),
+                        help='Frequency range for bandpass filter (default: 0.5-100 Hz)')
+    parser.add_argument('--resample-freq', type=int, default=100,
+                        help='Target frequency for resampling (default: 250 Hz)')
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     default_log_path = f"./logs/preprocess_{timestamp}.log"
     parser.add_argument('--log-file', type=str, default=default_log_path,
@@ -354,6 +404,20 @@ def main():
     # Log start time and arguments
     start_time = time.time()
     logger.info(f"Starting preprocessing with args: {vars(args)}")
+
+    # Log preprocessing parameters
+    logger.info(f"Preprocessing parameters:")
+    logger.info(f"- Crop start: {args.crop_start} seconds")
+    logger.info(f"- Crop end: {args.crop_end} seconds")
+    logger.info(f"- Filter length min: {args.filter_length_min} seconds")
+    logger.info(f"- Filter length max: {args.filter_length_max} seconds")
+    logger.info(f"- Notch frequency: {args.notch_freq} Hz")
+    logger.info(f"- Bandpass frequencies: {args.bandpass_freqs[0]}-{args.bandpass_freqs[1]} Hz")
+    logger.info(f"- Resample frequency: {args.resample_freq} Hz")
+    logger.info(f"- Output format: {args.output_format}")
+    logger.info(f"- Output directory: {args.output_dir}")
+    logger.info(f"- CSV file path: {args.csv_path}")
+    logger.info(f"- Max files to process: {args.max_files if args.max_files is not None else 'all'}")
     
     # Create output directory if it doesn't exist
     os.makedirs(args.output_dir, exist_ok=True)
@@ -374,7 +438,7 @@ def main():
     
     for file_path in tqdm(edf_files, desc="Preprocessing files"):
         try:
-            result = preprocess_eeg(file_path, args.output_dir, args.output_format)
+            result = preprocess_eeg(file_path, args)
             if result is not None:
                 output_path, time_len = result
                 processed_files.append([output_path, time_len])

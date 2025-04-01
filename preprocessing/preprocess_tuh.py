@@ -352,8 +352,8 @@ def main():
                         help='Directory to save preprocessed data')
     parser.add_argument('--output-format', type=str, default='npy',
                         help='Output format for preprocessed data (pt or npy)')
-    parser.add_argument('--csv-path', type=str, default='./inputs/sub_list2.csv',
-                        help='Path to save the CSV file')
+    parser.add_argument('--csv-path', type=str, default=None,
+                        help='Path to save the CSV file (default: output_dir/file_lengths_map.csv)')
     parser.add_argument('--max-files', type=int, default=None,
                         help='Maximum number of files to process (default: all)')
     # preprocess data args:
@@ -421,8 +421,13 @@ def main():
     
     # Create output directory if it doesn't exist
     os.makedirs(args.output_dir, exist_ok=True)
-    os.makedirs(os.path.dirname(args.csv_path), exist_ok=True)
+    if args.csv_path is None:
+        args.csv_path = os.path.join(args.output_dir, 'file_lengths_map.csv')
     
+    csv_dir = os.path.dirname(args.csv_path)
+    if csv_dir and csv_dir != args.output_dir:
+        os.makedirs(csv_dir, exist_ok=True)
+
     # Find all EDF files
     edf_files = find_edf_files(args.data_dir)
     

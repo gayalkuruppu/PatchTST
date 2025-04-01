@@ -70,14 +70,17 @@ class ExperimentConfig:
                 'cs-u-bach': {
                     'base_dir': '/home/gayal/ssl-analyses-repos/PatchTST',
                     'data_dir': '/home/gayal/ssl-analyses-repos/PatchTST/tuhab_records/tuhab_records_cropped',
-                    'csv_path': '/home/gayal/ssl-analyses-repos/PatchTST/tuhab_records/tuhab_records_cropped/tuhab_records_cropped.csv'
                 },
                 'cs-u-vivaldi': {
                     'base_dir': '/home/gayal/ssl-project/PatchTST',
                     'data_dir': '/home/gayal/ssl-project/PatchTST/tuhab_records/tuhab_records_cropped',
-                    'csv_path': '/home/gayal/ssl-project/PatchTST/tuhab_records/tuhab_records_cropped/tuhab_records_cropped.csv'
                 }
             }
+            
+            # Add csv_path derived from data_dir for each machine
+            for machine in self.machine_paths:
+                data_dir = self.machine_paths[machine]['data_dir']
+                self.machine_paths[machine]['csv_path'] = os.path.join(data_dir, 'file_lengths_map.csv')
 
 def get_machine_paths(config: ExperimentConfig) -> Dict[str, str]:
     """Get paths based on current machine"""
